@@ -18,6 +18,7 @@ import com.jme3.scene.shape.Box;
 import com.jme3.scene.shape.Sphere;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Random;
 
@@ -29,13 +30,15 @@ public class Main extends SimpleApplication {
     private ArrayList<Geometry> activeBoxes = new ArrayList<>();
     private ArrayList<Geometry> targetBoxes = new ArrayList<>();
 
+    private HashMap<Geometry, Integer> enemyHealth = new HashMap<>();
+
     private BitmapText scoreText, livesText, enemyText, gameOverText;
     private int score = 0;
     private int lives = 3;
     private boolean isGameOver = false;
 
     private Random rand = new Random();
-    private float shootCooldown = 0.3f;
+    private float shootCooldown = 0.15f;
     private float timeSinceLastShot = 0;
     private float enemySpeed = 3f;
 
@@ -57,8 +60,6 @@ public class Main extends SimpleApplication {
 
         createFloor();
         createTower();
-
-        // Ya no creamos cajas azules, eliminadas
 
         createTargetBoxes();
 
@@ -86,25 +87,53 @@ public class Main extends SimpleApplication {
     }
 
     private void createTower() {
-        Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", ColorRGBA.DarkGray);
+        Material mat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
+        mat.setBoolean("UseMaterialColors", true);
+        mat.setColor("Diffuse", ColorRGBA.DarkGray);
+        mat.setColor("Specular", ColorRGBA.White);
+        mat.setFloat("Shininess", 64f);  // brillo
 
+        // Base de la torre
         Geometry base = new Geometry("Base", new Box(2, 0.2f, 2));
         base.setMaterial(mat);
         base.setLocalTranslation(0, 0.2f, 0);
 
-        Geometry platform = new Geometry("Platform", new Box(1.5f, 0.1f, 1.5f));
+        // Plataforma
+        Geometry platform = new Geometry("Platform", new Box(3f, 0.1f, 3f));
         platform.setMaterial(mat);
         platform.setLocalTranslation(0, 6, 0);
 
+        // Poste central
         Geometry pole = new Geometry("Pole", new Box(0.3f, 3f, 0.3f));
         pole.setMaterial(mat);
         pole.setLocalTranslation(0, 3, 0);
+
+        // Añadimos detalles para realismo: columnas alrededor del poste
+        Material columnMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
+        columnMat.setBoolean("UseMaterialColors", true);
+        columnMat.setColor("Diffuse", ColorRGBA.LightGray);
+        columnMat.setColor("Specular", ColorRGBA.White);
+        columnMat.setFloat("Shininess", 32f);
+
+        Node columns = new Node("Columns");
+        float colHeight = 3f;
+        float colRadius = 0.15f;
+        float distFromCenter = 1.2f;
+        for (int i = 0; i < 4; i++) {
+            Geometry column = new Geometry("Column" + i, new Box(colRadius, colHeight, colRadius));
+            column.setMaterial(columnMat);
+            float angle = i * (float)(Math.PI / 2);
+            float x = distFromCenter * (float)Math.cos(angle);
+            float z = distFromCenter * (float)Math.sin(angle);
+            column.setLocalTranslation(x, colHeight, z);
+            columns.attachChild(column);
+        }
 
         tower = new Node("Tower");
         tower.attachChild(base);
         tower.attachChild(platform);
         tower.attachChild(pole);
+        tower.attachChild(columns);
 
         base.addControl(new RigidBodyControl(0));
         bulletAppState.getPhysicsSpace().add(base.getControl(RigidBodyControl.class));
@@ -118,7 +147,7 @@ public class Main extends SimpleApplication {
         Material redMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         redMat.setColor("Color", ColorRGBA.Red);
         int numBoxes = 12;
-        float radius = 20;
+        float radius = 50;
 
         for (int i = 0; i < numBoxes; i++) {
             float angle = (float) (i * (2 * Math.PI / numBoxes));
@@ -131,6 +160,8 @@ public class Main extends SimpleApplication {
             bulletAppState.getPhysicsSpace().add(box.getControl(RigidBodyControl.class));
             rootNode.attachChild(box);
             targetBoxes.add(box);
+
+            enemyHealth.put(box, 2);  // Vida inicial = 2 impactos
         }
     }
 
@@ -159,6 +190,8 @@ public class Main extends SimpleApplication {
 
         rootNode.attachChild(bullet);
         bulletAppState.getPhysicsSpace().add(bullet.getControl(RigidBodyControl.class));
+
+        activeBoxes.add(bullet);  // Seguimos las balas para colisiones
     }
 
     private void initHUD() {
@@ -227,8 +260,9 @@ public class Main extends SimpleApplication {
             rootNode.detachChild(geo);
         }
         targetBoxes.clear();
+        enemyHealth.clear();
 
-        for (Spatial bullet : rootNode.getChildren()) {
+        for (Spatial bullet : new ArrayList<>(rootNode.getChildren())) {
             if (bullet.getName() != null && bullet.getName().equals("bullet")) {
                 bulletAppState.getPhysicsSpace().remove(bullet.getControl(RigidBodyControl.class));
                 rootNode.detachChild(bullet);
@@ -236,7 +270,6 @@ public class Main extends SimpleApplication {
         }
 
         createTargetBoxes();
-        // Ya no generamos cajas azules
         updateHUD();
     }
 
@@ -254,53 +287,72 @@ public class Main extends SimpleApplication {
             timeSinceLastShot = 0;
         }
 
-        ArrayList<Geometry> toRemove = new ArrayList<>();
-        for (Geometry box : activeBoxes) {
-            if (box.getLocalTranslation().y < 0) {
-                toRemove.add(box);
+        // Remover balas caídas
+        ArrayList<Geometry> toRemoveBullets = new ArrayList<>();
+        for (Geometry bullet : activeBoxes) {
+            if (bullet.getLocalTranslation().y < 0) {
+                toRemoveBullets.add(bullet);
             }
         }
-        for (Geometry box : toRemove) {
-            activeBoxes.remove(box);
-            bulletAppState.getPhysicsSpace().remove(box.getControl(RigidBodyControl.class));
-            rootNode.detachChild(box);
-            addScore(1);
-            // Ya no generamos cajas azules
+        for (Geometry bullet : toRemoveBullets) {
+            activeBoxes.remove(bullet);
+            bulletAppState.getPhysicsSpace().remove(bullet.getControl(RigidBodyControl.class));
+            rootNode.detachChild(bullet);
         }
 
+        // Mover enemigos hacia la torre
         ArrayList<Geometry> toRemoveEnemies = new ArrayList<>();
         for (Geometry enemy : targetBoxes) {
             Vector3f dir = tower.getWorldTranslation().subtract(enemy.getWorldTranslation()).normalize();
             enemy.getControl(RigidBodyControl.class).setLinearVelocity(dir.mult(enemySpeed));
             if (enemy.getWorldTranslation().distance(tower.getWorldTranslation()) < 2f) {
-                loseLife();
                 toRemoveEnemies.add(enemy);
+                loseLife();
             }
         }
         for (Geometry enemy : toRemoveEnemies) {
             targetBoxes.remove(enemy);
+            enemyHealth.remove(enemy);
             bulletAppState.getPhysicsSpace().remove(enemy.getControl(RigidBodyControl.class));
             rootNode.detachChild(enemy);
         }
 
-        for (Spatial bullet : new ArrayList<>(rootNode.getChildren())) {
-            if ("bullet".equals(bullet.getName())) {
-                Iterator<Geometry> enemyIter = targetBoxes.iterator();
-                while (enemyIter.hasNext()) {
-                    Geometry enemy = enemyIter.next();
-                    if (bullet.getWorldTranslation().distance(enemy.getWorldTranslation()) < 1f) {
-                        addScore(2);
+        checkCollisions();
+        updateHUD();
+
+        if (targetBoxes.isEmpty() && !isGameOver) {
+            createTargetBoxes();
+        }
+    }
+
+    private void checkCollisions() {
+        Iterator<Geometry> bulletIterator = activeBoxes.iterator();
+        while (bulletIterator.hasNext()) {
+            Geometry bullet = bulletIterator.next();
+            Iterator<Geometry> enemyIterator = targetBoxes.iterator();
+            while (enemyIterator.hasNext()) {
+                Geometry enemy = enemyIterator.next();
+                if (bullet.getWorldBound().intersects(enemy.getWorldBound())) {
+                    int health = enemyHealth.getOrDefault(enemy, 1);
+                    health--;
+                    if (health <= 0) {
                         bulletAppState.getPhysicsSpace().remove(enemy.getControl(RigidBodyControl.class));
-                        bulletAppState.getPhysicsSpace().remove(bullet.getControl(RigidBodyControl.class));
                         rootNode.detachChild(enemy);
-                        rootNode.detachChild(bullet);
-                        enemyIter.remove();
-                        break;
+                        enemyIterator.remove();
+                        enemyHealth.remove(enemy);
+
+                        addScore(10);
+                    } else {
+                        enemyHealth.put(enemy, health);
                     }
+
+                    bulletAppState.getPhysicsSpace().remove(bullet.getControl(RigidBodyControl.class));
+                    rootNode.detachChild(bullet);
+                    bulletIterator.remove();
+
+                    return;
                 }
             }
         }
-
-        updateHUD();
     }
 }
