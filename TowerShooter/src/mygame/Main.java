@@ -317,42 +317,34 @@ public class Main extends SimpleApplication {
             rootNode.detachChild(enemy);
         }
 
-        checkCollisions();
-        updateHUD();
+        // Detectar colisiones entre balas y enemigos
+        Iterator<Geometry> bulletIt = activeBoxes.iterator();
+        while (bulletIt.hasNext()) {
+            Geometry bullet = bulletIt.next();
+            Iterator<Geometry> enemyIt = targetBoxes.iterator();
+            boolean bulletRemoved = false;
+            while (enemyIt.hasNext() && !bulletRemoved) {
+                Geometry enemy = enemyIt.next();
+                if (bullet.getWorldTranslation().distance(enemy.getWorldTranslation()) < 1.5f) {
+                    // Impacto
+                    int hp = enemyHealth.get(enemy) - 1;
+                    enemyHealth.put(enemy, hp);
 
-        if (targetBoxes.isEmpty() && !isGameOver) {
-            createTargetBoxes();
-        }
-    }
-
-    private void checkCollisions() {
-        Iterator<Geometry> bulletIterator = activeBoxes.iterator();
-        while (bulletIterator.hasNext()) {
-            Geometry bullet = bulletIterator.next();
-            Iterator<Geometry> enemyIterator = targetBoxes.iterator();
-            while (enemyIterator.hasNext()) {
-                Geometry enemy = enemyIterator.next();
-                if (bullet.getWorldBound().intersects(enemy.getWorldBound())) {
-                    int health = enemyHealth.getOrDefault(enemy, 1);
-                    health--;
-                    if (health <= 0) {
+                    if (hp <= 0) {
+                        enemyIt.remove();
                         bulletAppState.getPhysicsSpace().remove(enemy.getControl(RigidBodyControl.class));
                         rootNode.detachChild(enemy);
-                        enemyIterator.remove();
-                        enemyHealth.remove(enemy);
-
-                        addScore(10);
-                    } else {
-                        enemyHealth.put(enemy, health);
+                        addScore(1);
                     }
 
+                    bulletIt.remove();
                     bulletAppState.getPhysicsSpace().remove(bullet.getControl(RigidBodyControl.class));
                     rootNode.detachChild(bullet);
-                    bulletIterator.remove();
-
-                    return;
+                    bulletRemoved = true;
                 }
             }
         }
+
+        updateHUD();
     }
 }
