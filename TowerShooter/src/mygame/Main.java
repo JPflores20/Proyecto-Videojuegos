@@ -17,6 +17,16 @@ import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 import com.jme3.scene.shape.Sphere;
 
+import com.jme3.terrain.geomipmap.TerrainQuad;
+import com.jme3.terrain.heightmap.ImageBasedHeightMap;
+import com.jme3.texture.Texture;
+import com.jme3.texture.Texture.WrapMode;
+import com.jme3.util.SkyFactory;
+import com.jme3.terrain.heightmap.HeightMap;
+import com.jme3.scene.Spatial;
+
+
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -73,17 +83,33 @@ public class Main extends SimpleApplication {
         sun.setColor(ColorRGBA.White);
         rootNode.addLight(sun);
     }
+private TerrainQuad terrain;
 
     private void createFloor() {
-        Box floorBox = new Box(50, 0.1f, 50);
-        Geometry floorGeo = new Geometry("Floor", floorBox);
-        Material mat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
-        mat.setColor("Color", ColorRGBA.Gray);
-        floorGeo.setMaterial(mat);
-        floorGeo.setLocalTranslation(0, -0.1f, 0);
-        floorGeo.addControl(new RigidBodyControl(0));
-        bulletAppState.getPhysicsSpace().add(floorGeo.getControl(RigidBodyControl.class));
-        rootNode.attachChild(floorGeo);
+        // Cargar heightmap desde una textura en escala de grises (puede ser generada o tomada de assets)
+        Texture heightMapImage = assetManager.loadTexture("Textures/Terrain/splat/grand_mountain.png");
+
+        heightMapImage.setWrap(WrapMode.Repeat);
+        HeightMap heightmap = new ImageBasedHeightMap(heightMapImage.getImage());
+        heightmap.load();
+
+        // Crear el terreno con el heightmap
+        terrain = new TerrainQuad("myTerrain", 65, 513, heightmap.getHeightMap());
+
+        // Material básico
+        Material mat = new Material(assetManager, "Common/MatDefs/Terrain/Terrain.j3md");
+        Texture grass = assetManager.loadTexture("Textures/Terrain/splat/grass.jpg");
+        grass.setWrap(WrapMode.Repeat);
+        mat.setTexture("Tex1", grass);
+        mat.setFloat("Tex1Scale", 64f);
+
+        terrain.setMaterial(mat);
+        terrain.setLocalTranslation(0, -10, 0);
+        terrain.setLocalScale(2f, 1f, 2f);
+
+        terrain.addControl(new RigidBodyControl(0));
+        bulletAppState.getPhysicsSpace().add(terrain.getControl(RigidBodyControl.class));
+        rootNode.attachChild(terrain);
     }
 
     private void createTower() {
@@ -161,7 +187,7 @@ public class Main extends SimpleApplication {
             rootNode.attachChild(box);
             targetBoxes.add(box);
 
-            enemyHealth.put(box, 2);  // Vida inicial = 2 impactos
+            enemyHealth.put(box, 1);  // Vida inicial = 2 impactos
         }
     }
 
