@@ -10,22 +10,19 @@ import com.jme3.input.controls.KeyTrigger;
 import com.jme3.light.DirectionalLight;
 import com.jme3.material.Material;
 import com.jme3.math.ColorRGBA;
+import com.jme3.math.Vector2f;
 import com.jme3.math.Vector3f;
 import com.jme3.scene.Geometry;
 import com.jme3.scene.Node;
 import com.jme3.scene.Spatial;
 import com.jme3.scene.shape.Box;
 import com.jme3.scene.shape.Sphere;
-
 import com.jme3.terrain.geomipmap.TerrainQuad;
 import com.jme3.terrain.heightmap.ImageBasedHeightMap;
 import com.jme3.texture.Texture;
 import com.jme3.texture.Texture.WrapMode;
 import com.jme3.util.SkyFactory;
 import com.jme3.terrain.heightmap.HeightMap;
-import com.jme3.scene.Spatial;
-
-
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -36,6 +33,7 @@ public class Main extends SimpleApplication {
 
     private BulletAppState bulletAppState;
     private Node tower;
+    private TerrainQuad terrain;
 
     private ArrayList<Geometry> activeBoxes = new ArrayList<>();
     private ArrayList<Geometry> targetBoxes = new ArrayList<>();
@@ -65,12 +63,14 @@ public class Main extends SimpleApplication {
         flyCam.setMoveSpeed(30);
         setUpLight();
 
+        // Inicialización correcta de BulletAppState
         bulletAppState = new BulletAppState();
         stateManager.attach(bulletAppState);
+        // Configurar gravedad después de adjuntar
+        bulletAppState.getPhysicsSpace().setGravity(new Vector3f(0, -9.8f, 0));
 
         createFloor();
         createTower();
-
         createTargetBoxes();
 
         initKeys();
@@ -83,20 +83,15 @@ public class Main extends SimpleApplication {
         sun.setColor(ColorRGBA.White);
         rootNode.addLight(sun);
     }
-private TerrainQuad terrain;
 
     private void createFloor() {
-        // Cargar heightmap desde una textura en escala de grises (puede ser generada o tomada de assets)
         Texture heightMapImage = assetManager.loadTexture("Textures/Terrain/splat/grand_mountain.png");
-
         heightMapImage.setWrap(WrapMode.Repeat);
         HeightMap heightmap = new ImageBasedHeightMap(heightMapImage.getImage());
         heightmap.load();
 
-        // Crear el terreno con el heightmap
         terrain = new TerrainQuad("myTerrain", 65, 513, heightmap.getHeightMap());
 
-        // Material básico
         Material mat = new Material(assetManager, "Common/MatDefs/Terrain/Terrain.j3md");
         Texture grass = assetManager.loadTexture("Textures/Terrain/splat/grass.jpg");
         grass.setWrap(WrapMode.Repeat);
@@ -104,11 +99,13 @@ private TerrainQuad terrain;
         mat.setFloat("Tex1Scale", 64f);
 
         terrain.setMaterial(mat);
-        terrain.setLocalTranslation(0, -10, 0);
+        terrain.setLocalTranslation(0, 0, 0);
         terrain.setLocalScale(2f, 1f, 2f);
 
-        terrain.addControl(new RigidBodyControl(0));
-        bulletAppState.getPhysicsSpace().add(terrain.getControl(RigidBodyControl.class));
+        RigidBodyControl terrainControl = new RigidBodyControl(0);
+        terrain.addControl(terrainControl); // Primero añadir control
+        terrainControl.setFriction(0.8f); // Luego configurar propiedades
+        bulletAppState.getPhysicsSpace().add(terrainControl);
         rootNode.attachChild(terrain);
     }
 
@@ -117,24 +114,26 @@ private TerrainQuad terrain;
         mat.setBoolean("UseMaterialColors", true);
         mat.setColor("Diffuse", ColorRGBA.DarkGray);
         mat.setColor("Specular", ColorRGBA.White);
-        mat.setFloat("Shininess", 64f);  // brillo
+        mat.setFloat("Shininess", 64f);
+
+        float terrainHeight = terrain.getHeight(new Vector2f(0, 0));
 
         // Base de la torre
         Geometry base = new Geometry("Base", new Box(2, 0.2f, 2));
         base.setMaterial(mat);
-        base.setLocalTranslation(0, 0.2f, 0);
+        base.setLocalTranslation(0, terrainHeight + 0.2f, 0);
 
         // Plataforma
         Geometry platform = new Geometry("Platform", new Box(3f, 0.1f, 3f));
         platform.setMaterial(mat);
-        platform.setLocalTranslation(0, 6, 0);
+        platform.setLocalTranslation(0, terrainHeight + 6, 0);
 
         // Poste central
         Geometry pole = new Geometry("Pole", new Box(0.3f, 3f, 0.3f));
         pole.setMaterial(mat);
-        pole.setLocalTranslation(0, 3, 0);
+        pole.setLocalTranslation(0, terrainHeight + 3, 0);
 
-        // Añadimos detalles para realismo: columnas alrededor del poste
+        // Columnas alrededor
         Material columnMat = new Material(assetManager, "Common/MatDefs/Light/Lighting.j3md");
         columnMat.setBoolean("UseMaterialColors", true);
         columnMat.setColor("Diffuse", ColorRGBA.LightGray);
@@ -151,7 +150,7 @@ private TerrainQuad terrain;
             float angle = i * (float)(Math.PI / 2);
             float x = distFromCenter * (float)Math.cos(angle);
             float z = distFromCenter * (float)Math.sin(angle);
-            column.setLocalTranslation(x, colHeight, z);
+            column.setLocalTranslation(x, terrainHeight + colHeight, z);
             columns.attachChild(column);
         }
 
@@ -161,11 +160,14 @@ private TerrainQuad terrain;
         tower.attachChild(pole);
         tower.attachChild(columns);
 
-        base.addControl(new RigidBodyControl(0));
-        bulletAppState.getPhysicsSpace().add(base.getControl(RigidBodyControl.class));
+        RigidBodyControl basePhysics = new RigidBodyControl(0);
+        base.addControl(basePhysics); // Primero añadir
+        basePhysics.setFriction(0.7f); // Luego configurar
+        basePhysics.setRestitution(0.1f);
+        bulletAppState.getPhysicsSpace().add(basePhysics);
         rootNode.attachChild(tower);
 
-        cam.setLocation(new Vector3f(0, 7, 5));
+        cam.setLocation(new Vector3f(0, terrainHeight + 7, 5));
         cam.lookAt(tower.getLocalTranslation().add(0, 6, 0), Vector3f.UNIT_Y);
     }
 
@@ -173,21 +175,32 @@ private TerrainQuad terrain;
         Material redMat = new Material(assetManager, "Common/MatDefs/Misc/Unshaded.j3md");
         redMat.setColor("Color", ColorRGBA.Red);
         int numBoxes = 12;
-        float radius = 50;
+        float minDistance = 90f;
+        float maxDistance = 120f;
 
         for (int i = 0; i < numBoxes; i++) {
-            float angle = (float) (i * (2 * Math.PI / numBoxes));
-            float x = (float) (radius * Math.cos(angle));
-            float z = (float) (radius * Math.sin(angle));
+            Vector3f position;
+            float terrainHeight;
+            do {
+                float x = rand.nextFloat() * (maxDistance * 2) - maxDistance;
+                float z = rand.nextFloat() * (maxDistance * 2) - maxDistance;
+                terrainHeight = terrain.getHeight(new Vector2f(x, z));
+                position = new Vector3f(x, terrainHeight + 1, z);
+            } while (position.distance(Vector3f.ZERO) < minDistance);
+
             Geometry box = new Geometry("Target Box", new Box(1, 1, 1));
             box.setMaterial(redMat);
-            box.setLocalTranslation(x, 1, z);
-            box.addControl(new RigidBodyControl(2));
-            bulletAppState.getPhysicsSpace().add(box.getControl(RigidBodyControl.class));
+            box.setLocalTranslation(position);
+            
+            RigidBodyControl enemyPhysics = new RigidBodyControl(2);
+            box.addControl(enemyPhysics); // Primero añadir
+            enemyPhysics.setFriction(0.6f); // Luego configurar
+            enemyPhysics.setRestitution(0.2f);
+            
+            bulletAppState.getPhysicsSpace().add(enemyPhysics);
             rootNode.attachChild(box);
             targetBoxes.add(box);
-
-            enemyHealth.put(box, 1);  // Vida inicial = 2 impactos
+            enemyHealth.put(box, 1);
         }
     }
 
@@ -210,14 +223,14 @@ private TerrainQuad terrain;
         bullet.setMaterial(mat);
         bullet.setLocalTranslation(cam.getLocation().add(cam.getDirection().mult(2)));
 
-        bullet.addControl(new RigidBodyControl(1));
-        bullet.getControl(RigidBodyControl.class).setLinearVelocity(cam.getDirection().mult(50));
-        bullet.getControl(RigidBodyControl.class).setGravity(Vector3f.ZERO);
+        RigidBodyControl bulletPhysics = new RigidBodyControl(1);
+        bullet.addControl(bulletPhysics); // Primero añadir
+        bulletPhysics.setLinearVelocity(cam.getDirection().mult(50));
+        bulletPhysics.setGravity(Vector3f.ZERO);
 
         rootNode.attachChild(bullet);
-        bulletAppState.getPhysicsSpace().add(bullet.getControl(RigidBodyControl.class));
-
-        activeBoxes.add(bullet);  // Seguimos las balas para colisiones
+        bulletAppState.getPhysicsSpace().add(bulletPhysics);
+        activeBoxes.add(bullet);
     }
 
     private void initHUD() {
@@ -316,7 +329,7 @@ private TerrainQuad terrain;
         // Remover balas caídas
         ArrayList<Geometry> toRemoveBullets = new ArrayList<>();
         for (Geometry bullet : activeBoxes) {
-            if (bullet.getLocalTranslation().y < 0) {
+            if (bullet.getLocalTranslation().y < -10) {
                 toRemoveBullets.add(bullet);
             }
         }
@@ -366,7 +379,6 @@ private TerrainQuad terrain;
                         rootNode.detachChild(enemy);
                         enemyIterator.remove();
                         enemyHealth.remove(enemy);
-
                         addScore(10);
                     } else {
                         enemyHealth.put(enemy, health);
@@ -375,7 +387,6 @@ private TerrainQuad terrain;
                     bulletAppState.getPhysicsSpace().remove(bullet.getControl(RigidBodyControl.class));
                     rootNode.detachChild(bullet);
                     bulletIterator.remove();
-
                     return;
                 }
             }
